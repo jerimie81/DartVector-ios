@@ -22,3 +22,7 @@ git add .
 git commit -m "feat: update web assets and Swift shell"
 git push origin main
 ```
+
+## Apple signing setup
+
+For signed device/TestFlight builds, add the required Apple secrets described in [docs/apple-signing.md](docs/apple-signing.md). The remote Mac build workflow is in [.github/workflows/ios.yml](.github/workflows/ios.yml).

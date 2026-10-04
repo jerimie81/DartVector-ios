@@ -1,40 +1,201 @@
-name: iOS Build Pipeline
+name: DartVector iOS Build
 
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
+    inputs:
+      configuration:
+        description: Xcode build configuration to use
+        required: false
+        default: Release
+        type: choice
+        options:
+          - Debug
+          - Release
+
+permissions:
+  contents: read
+
+# Required repository secrets for signed builds:
+# APPLE_CERTIFICATE
+# APPLE_CERTIFICATE_PASSWORD
+# APPLE_PROVISIONING_PROFILE
+# APPLE_TEAM_ID
+# APPLE_ISSUER_ID
+# APPLE_KEY_ID
+# APPLE_PRIVATE_KEY
+
+env:
+  NODE_VERSION: '22'
+  WEB_REPO: jerimie81/DartVector
+  WEB_REPO_PATH: web-src
+  XCODE_PROJECT: DartVector.xcodeproj
+  XCODE_SCHEME: DartVector
+  BUNDLE_ID: com.jerimie81.dartvector
+  DERIVED_DATA_PATH: build/DerivedData
+  ARCHIVE_PATH: build/archive/DartVector.xcarchive
+  EXPORT_PATH: build/export
 
 jobs:
   build-ios:
-    runs-on: macos-latest
+    runs-on: macos-15
+    timeout-minutes: 60
+
     steps:
-      - name: Checkout iOS Repository
+      - name: Checkout iOS repository
         uses: actions/checkout@v4
 
-      - name: Select Xcode Version
-        run: sudo xcode-select -switch /Applications/Xcode_16.0.app || true
+      - name: Validate Xcode project exists
+        run: |
+          if [ ! -f "$XCODE_PROJECT" ] && [ ! -d "$XCODE_PROJECT" ]; then
+            echo "Xcode project not found: $XCODE_PROJECT"
+            echo "Create the Xcode project or update XCODE_PROJECT in this workflow."
+            exit 1
+          fi
+
+      - name: Checkout web application source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.WEB_REPO }}
+          path: ${{ env.WEB_REPO_PATH }}
+          fetch-depth: 1
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ env.WEB_REPO_PATH }}/package-lock.json
 
-      - name: Checkout Web Application
-        uses: actions/checkout@v4
-        with:
-          repository: jerimie81/DartVector
-          path: web-src
+      - name: Install web dependencies
+        working-directory: ${{ env.WEB_REPO_PATH }}
+        run: npm ci
 
-      - name: Build Static Web Export
+      - name: Build static web export for iOS
+        working-directory: ${{ env.WEB_REPO_PATH }}
         run: |
-          cd web-src
-          npm ci
           BUILD_TARGET=ios npm run build
+
           mkdir -p ../DartVector/WebAssets
+          find ../DartVector/WebAssets -mindepth 1 -maxdepth 1 ! -name '.gitkeep' -exec rm -rf {} +
           cp -R out/. ../DartVector/WebAssets/
 
-      - name: Validate Web Assets Output
+      - name: Validate bundled web assets
         run: |
-          ls -la DartVector/WebAssets/
           test -f DartVector/WebAssets/index.html
+          ls -la DartVector/WebAssets
+
+      - name: Select Xcode version
+        run: |
+          if [ -d "/Applications/Xcode_16.1.app" ]; then
+            sudo xcode-select -switch /Applications/Xcode_16.1.app
+          elif [ -d "/Applications/Xcode_16.0.app" ]; then
+            sudo xcode-select -switch /Applications/Xcode_16.0.app
+          else
+            sudo xcode-select -switch /Applications/Xcode.app
+          fi
+          xcodebuild -version
+
+      - name: Build simulator app
+        env:
+          BUILD_CONFIGURATION: ${{ github.event.inputs.configuration || 'Release' }}
+        run: |
+          mkdir -p "$DERIVED_DATA_PATH"
+          xcodebuild build \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration "$BUILD_CONFIGURATION" \
+            -sdk iphonesimulator \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            GCC_PREPROCESSOR_DEFINITIONS='$(inherited) BUILD_TARGET_IOS=1'
+
+      - name: Upload simulator artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dartvector-ios-simulator
+          path: ${{ env.DERIVED_DATA_PATH }}/Build/Products/${{ github.event.inputs.configuration || 'Release' }}-iphonesimulator/
+          if-no-files-found: warn
+
+      - name: Import signing certificate
+        if: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Install provisioning profile
+        if: ${{ secrets.APPLE_PROVISIONING_PROFILE != '' && secrets.APPLE_TEAM_ID != '' }}
+        uses: apple-actions/download-provisioning-profiles@v4
+        with:
+          bundle-id: ${{ env.BUNDLE_ID }}
+          profile-type: IOS_APP_STORE
+          issuer-id: ${{ secrets.APPLE_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPLE_KEY_ID }}
+          api-key-content: ${{ secrets.APPLE_PRIVATE_KEY }}
+
+      - name: Archive signed device build
+        if: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_PROVISIONING_PROFILE != '' && secrets.APPLE_TEAM_ID != '' }}
+        env:
+          BUILD_CONFIGURATION: ${{ github.event.inputs.configuration || 'Release' }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          mkdir -p "$EXPORT_PATH"
+          xcodebuild archive \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration "$BUILD_CONFIGURATION" \
+            -sdk iphoneos \
+            -archivePath "$ARCHIVE_PATH" \
+            -destination 'generic/platform=iOS' \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=YES
+
+      - name: Export IPA
+        if: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_PROVISIONING_PROFILE != '' && secrets.APPLE_TEAM_ID != '' }}
+        env:
+          BUILD_CONFIGURATION: ${{ github.event.inputs.configuration || 'Release' }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cat > exportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>teamID</key>
+              <string>${APPLE_TEAM_ID}</string>
+              <key>signingStyle</key>
+              <string>automatic</string>
+              <key>stripSwiftSymbols</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+          xcrun xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_PATH" \
+            -exportOptionsPlist exportOptions.plist
+
+      - name: Upload signed IPA artifact
+        if: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_PROVISIONING_PROFILE != '' && secrets.APPLE_TEAM_ID != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dartvector-ios-ipa
+          path: ${{ env.EXPORT_PATH }}/*.ipa
+          if-no-files-found: error
+
+      - name: Final status
+        if: always()
+        run: |
+          echo "DartVector iOS workflow completed."
+          echo "To enable signed device/TestFlight builds, add the required Apple signing secrets in GitHub repository settings."
