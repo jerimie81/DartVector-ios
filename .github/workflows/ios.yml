@@ -1,0 +1,40 @@
+name: iOS Build Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout iOS Repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode Version
+        run: sudo xcode-select -switch /Applications/Xcode_16.0.app || true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Checkout Web Application
+        uses: actions/checkout@v4
+        with:
+          repository: jerimie81/DartVector
+          path: web-src
+
+      - name: Build Static Web Export
+        run: |
+          cd web-src
+          npm ci
+          BUILD_TARGET=ios npm run build
+          mkdir -p ../DartVector/WebAssets
+          cp -R out/. ../DartVector/WebAssets/
+
+      - name: Validate Web Assets Output
+        run: |
+          ls -la DartVector/WebAssets/
+          test -f DartVector/WebAssets/index.html
