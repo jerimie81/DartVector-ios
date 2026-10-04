@@ -122,15 +122,29 @@ jobs:
           path: ${{ env.DERIVED_DATA_PATH }}/Build/Products/${{ github.event.inputs.configuration || 'Release' }}-iphonesimulator/
           if-no-files-found: warn
 
+      - name: Check Apple signing inputs
+        id: apple-signing
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_CERTIFICATE_PASSWORD" ] && [ -n "$APPLE_PROVISIONING_PROFILE" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Import signing certificate
-        if: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+        if: ${{ steps.apple-signing.outputs.enabled == 'true' }}
         uses: apple-actions/import-codesign-certs@v3
         with:
           p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
           p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
       - name: Install provisioning profile
-        if: ${{ secrets.APPLE_PROVISIONING_PROFILE != '' && secrets.APPLE_TEAM_ID != '' }}
+        if: ${{ steps.apple-signing.outputs.enabled == 'true' }}
         uses: apple-actions/download-provisioning-profiles@v4
         with:
           bundle-id: ${{ env.BUNDLE_ID }}
@@ -140,7 +154,7 @@ jobs:
           api-key-content: ${{ secrets.APPLE_PRIVATE_KEY }}
 
       - name: Archive signed device build
-        if: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_PROVISIONING_PROFILE != '' && secrets.APPLE_TEAM_ID != '' }}
+        if: ${{ steps.apple-signing.outputs.enabled == 'true' }}
         env:
           BUILD_CONFIGURATION: ${{ github.event.inputs.configuration || 'Release' }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -159,7 +173,7 @@ jobs:
             CODE_SIGNING_REQUIRED=YES
 
       - name: Export IPA
-        if: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_PROVISIONING_PROFILE != '' && secrets.APPLE_TEAM_ID != '' }}
+        if: ${{ steps.apple-signing.outputs.enabled == 'true' }}
         env:
           BUILD_CONFIGURATION: ${{ github.event.inputs.configuration || 'Release' }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -187,7 +201,7 @@ jobs:
             -exportOptionsPlist exportOptions.plist
 
       - name: Upload signed IPA artifact
-        if: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_PROVISIONING_PROFILE != '' && secrets.APPLE_TEAM_ID != '' }}
+        if: ${{ steps.apple-signing.outputs.enabled == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: dartvector-ios-ipa
