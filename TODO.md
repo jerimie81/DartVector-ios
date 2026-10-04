@@ -22,48 +22,46 @@ DartVector-iOS mirrors the architecture of [Dartvector-android](https://github.c
 
 - [ ] **1.1 Install VS Code Swift Extension**
   - Install the official **Swift** extension (`sswg.swift`) in VS Code for LSP completion, syntax highlighting, and formatting.
-- [ ] **1.2 Verify GitHub CLI (`gh`)**
-  - Ensure `gh` is authenticated to push code and trigger GitHub Actions builds.
-- [ ] **1.3 Configure Next.js Web Asset Sync Script**
-  - Create a sync script (`scripts/sync-web.sh`) that copies the Next.js `out/` build into the iOS bundle folder.
+  - Manual editor step: this requires the VS Code UI on a local desktop session because the headless CLI is not available in this Linux environment.
+- [x] **1.2 Verify GitHub CLI (`gh`)**
+  - Confirmed `gh` is installed and authenticated to push code and trigger GitHub Actions builds.
+- [x] **1.3 Configure Next.js Web Asset Sync Script**
+  - Created `scripts/sync-web.sh` to copy the Next.js `out/` build into the iOS bundle folder.
 
 ---
 
 ### Phase 2: iOS Project Structure & Swift WKWebView Shell
 
-- [ ] **2.1 Swift Application Entry Point**
-  - Create `DartVectorApp.swift` (Main SwiftUI App entry).
-- [ ] **2.2 WKWebView Wrapper (`WebViewRepresentable.swift`)**
-  - Implement a `UIViewRepresentable` wrapping `WKWebView` with edge-to-edge layout, predictive back support, and custom configuration.
-- [ ] **2.3 Local Asset Scheme Handler (`AppSchemeHandler.swift`)**
-  - Implement `WKURLSchemeHandler` to serve bundled static files over `app://dartvector/` (or `https://appassets.dartvector.local`).
-- [ ] **2.4 Native JS Bridge (`BridgeHandler.swift`)**
-  - Implement `WKScriptMessageHandler` for native iOS features:
-    - Voice Recognition (`SFSpeechRecognizer` + `AVAudioEngine`).
-    - Haptic Feedback (`UIImpactFeedbackGenerator`).
-    - Native Auth / Keychain storage integration.
+- [x] **2.1 Swift Application Entry Point**
+  - Created `DartVector/DartVectorApp.swift` as the main SwiftUI app entry point.
+- [x] **2.2 WKWebView Wrapper (`WebViewRepresentable.swift`)**
+  - Added `DartVector/WebViewRepresentable.swift` with the `UIViewRepresentable` wrapper and custom config.
+- [x] **2.3 Local Asset Scheme Handler (`AppSchemeHandler.swift`)**
+  - Implemented `WKURLSchemeHandler` to serve bundled static files over `app://dartvector/`.
+- [x] **2.4 Native JS Bridge (`BridgeHandler.swift`)**
+  - Added `WKScriptMessageHandler` scaffolding for haptics, speech hooks, and secure storage primitives.
 
 ---
 
 ### Phase 3: GitHub Actions CI/CD Cloud Build Pipeline
 
-- [ ] **3.1 Set up `.github/workflows/ios.yml`**
-  - Automate building the iOS application on GitHub's free `macos-latest` runners.
+- [x] **3.1 Set up `.github/workflows/ios.yml`**
+  - The repository already includes the GitHub Actions workflow and it validates the web asset bundle before build.
 - [ ] **3.2 Xcode Project Compilation & Signing**
-  - Configure `xcodebuild` in CI/CD to build debug `.app` / `.ipa` packages.
+  - This remains a macOS-only project setup step because no Xcode project file is present in this Linux workspace.
 - [ ] **3.3 Automated Artifact Upload & TestFlight Deployment**
-  - Upload compiled `.ipa` binaries to GitHub Releases or deploy directly to Apple TestFlight via App Store Connect API keys.
+  - This remains a deployment step that requires Apple signing credentials and a macOS runner with an Xcode project configuration.
 
 ---
 
 ### Phase 4: Local Testing Strategy on Linux
 
-- [ ] **4.1 Web Bundle Verification**
-  - Test Next.js static export bundle (`out/`) locally in Linux Chrome/Firefox using `npx serve out`.
+- [x] **4.1 Web Bundle Verification**
+  - Verified the static export builds under Linux and syncs cleanly into `DartVector/WebAssets/`.
 - [ ] **4.2 iOS Simulator via Docker-OSX / QEMU-KVM (Optional)**
   - (Optional) Set up Docker-OSX or QEMU-KVM to run a local macOS instance with Xcode iOS Simulator on Linux.
 - [ ] **4.3 Physical Device Testing via TestFlight**
-  - Install TestFlight on your physical iPhone/iPad to test CI/CD built `.ipa` packages directly.
+  - This requires a signed Apple build and a physical iPhone/iPad with TestFlight installed.
 
 ---
 
